@@ -10,8 +10,10 @@ const {
 const admin = require("firebase-admin");
 const fs = require("fs");
 const express = require("express");
+
 const app = express();
 const processed = new Set();
+
 // --- Validate environment variables ---
 if (!process.env.DISCORD_TOKEN) {
   console.error("❌ Missing DISCORD_TOKEN in .env");
@@ -43,10 +45,12 @@ const client = new Client({
 
 const CHANNEL_ID = process.env.CHANNEL_ID;
 
-// --- Watch Firestore for new device requests ---
+// --- Watch Firestore ---
 let unsubscribe = null;
+
 async function watchRequests() {
-  if (unsubscribe) unsubscribe(); // prevent multiple listeners
+  if (unsubscribe) unsubscribe();
+
   console.log("👀 Watching Firestore for new requests...");
 
   unsubscribe = db.collection("requests").onSnapshot(async (snapshot) => {
@@ -76,29 +80,25 @@ async function watchRequests() {
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`approve_${deviceId}`)
-          .setLabel("✅ Approve")
+          .setLabel("Approve")
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId(`deny_${deviceId}`)
-          .setLabel("❌ Deny")
+          .setLabel("Deny")
           .setStyle(ButtonStyle.Danger)
       );
 
       try {
         const channel = await client.channels.fetch(CHANNEL_ID);
-        if (!channel) {
-          console.error("⚠️ Channel not found. Check your CHANNEL_ID.");
-          return;
-        }
         await channel.send({ embeds: [embed], components: [row] });
       } catch (err) {
-        console.error("❌ Failed to send message to channel:", err);
+        console.error("❌ Failed to send message:", err);
       }
     });
   });
 }
 
-// --- Handle Approve/Deny button clicks ---
+// --- Handle buttons ---
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isButton()) return;
 
@@ -110,84 +110,58 @@ client.on("interactionCreate", async (interaction) => {
   const snapshot = await reqRef.get();
 
   if (!snapshot.exists) {
-    await interaction.reply({
-      content: "⚠️ Request not found or already processed.",
+    return interaction.reply({
+      content: "⚠️ Already processed.",
       ephemeral: true,
     });
-    return;
   }
 
   const data = snapshot.data();
   const username = data.username || "Unknown";
   const deviceName = data.deviceName || "Unnamed";
-  
-  let approved = false;
-  
+
+  let approved = action === "approve";
+
   try {
-    if (action === "approve") {
-      approved = true;
+    await deviceRef.set({
+      deviceId,
+      username,
+      deviceName,
+      approved,
+      timestamp: new Date().toISOString(),
+    });
 
-      await deviceRef.set({
-        deviceId,
-        username,
-        deviceName,
-        approved: true,
-        timestamp: new Date().toISOString(),
-      });
+    await interaction.reply({
+      content: approved
+        ? `✅ Approved ${username}`
+        : `❌ Denied ${username}`,
+      ephemeral: true,
+    });
 
-      await interaction.reply({
-        content: `✅ Approved **${username}** (${deviceName})`,
-        ephemeral: true,
-      });
-  
-    } else if (action === "deny") {
-      approved = false;
-
-      await deviceRef.set({
-        deviceId,
-        username,
-        deviceName,
-        approved: false,
-        timestamp: new Date().toISOString(),
-      });
-
-      await interaction.reply({
-        content: `❌ Denied **${username}** (${deviceName})`,
-        ephemeral: true,
-      });
-    }
-
-    // 🔁 Update buttons dynamically
+    // 🔁 Update buttons
     const updatedRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approve_${deviceId}`)
         .setLabel(approved ? "✅ Approved" : "Approve")
         .setStyle(ButtonStyle.Success)
-        .setDisabled(approved), // disable if already approved
+        .setDisabled(approved),
 
       new ButtonBuilder()
         .setCustomId(`deny_${deviceId}`)
         .setLabel(!approved ? "❌ Denied" : "Deny")
         .setStyle(ButtonStyle.Danger)
-        .setDisabled(!approved) // disable if denied
+        .setDisabled(!approved)
     );
 
-    // 🔁 Edit original message
     await interaction.message.edit({
       components: [updatedRow],
     });
 
-    // ❗ OPTIONAL: keep or remove request
-    // If you want toggle ability → DO NOT delete
-    // If you want one-time decision → keep delete
-
-    // await reqRef.delete(); ← COMMENT THIS OUT for toggle system
-
   } catch (err) {
-    console.error("❌ Error processing request:", err);
-  
+    console.error("❌ Error:", err);
+
     await interaction.reply({
-      content: "⚠️ Something went wrong while updating Firestore.",
+      content: "⚠️ Error occurred.",
       ephemeral: true,
     });
   }
@@ -198,12 +172,15 @@ client.once("ready", async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
   await watchRequests();
 });
+
+// --- Keep alive server ---
 app.get("/", (req, res) => {
   res.send("🤖 Bot is alive");
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🌐 Web server running on port ${PORT}`);
+  console.log(`🌐 Server running on port ${PORT}`);
 });
+
 client.login(process.env.DISCORD_TOKEN);
