@@ -9,7 +9,9 @@ const {
 } = require("discord.js");
 const admin = require("firebase-admin");
 const fs = require("fs");
-
+const express = require("express");
+const app = express();
+const processed = new Set();
 // --- Validate environment variables ---
 if (!process.env.DISCORD_TOKEN) {
   console.error("❌ Missing DISCORD_TOKEN in .env");
@@ -50,6 +52,11 @@ async function watchRequests() {
   unsubscribe = db.collection("requests").onSnapshot(async (snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
       if (change.type !== "added") return;
+
+      const docId = change.doc.id;
+
+      if (processed.has(docId)) return;
+      processed.add(docId);
 
       const data = change.doc.data();
       const deviceId = data.deviceId;
@@ -96,8 +103,10 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isButton()) return;
 
   const [action, deviceId] = interaction.customId.split("_");
+
   const reqRef = db.collection("requests").doc(deviceId);
   const deviceRef = db.collection("devices").doc(deviceId);
+
   const snapshot = await reqRef.get();
 
   if (!snapshot.exists) {
@@ -111,9 +120,13 @@ client.on("interactionCreate", async (interaction) => {
   const data = snapshot.data();
   const username = data.username || "Unknown";
   const deviceName = data.deviceName || "Unnamed";
-
+  
+  let approved = false;
+  
   try {
     if (action === "approve") {
+      approved = true;
+
       await deviceRef.set({
         deviceId,
         username,
@@ -121,12 +134,15 @@ client.on("interactionCreate", async (interaction) => {
         approved: true,
         timestamp: new Date().toISOString(),
       });
+
       await interaction.reply({
         content: `✅ Approved **${username}** (${deviceName})`,
         ephemeral: true,
       });
-      console.log(`✅ Approved device ${deviceId}`);
-    } else {
+  
+    } else if (action === "deny") {
+      approved = false;
+
       await deviceRef.set({
         deviceId,
         username,
@@ -134,17 +150,42 @@ client.on("interactionCreate", async (interaction) => {
         approved: false,
         timestamp: new Date().toISOString(),
       });
+
       await interaction.reply({
         content: `❌ Denied **${username}** (${deviceName})`,
         ephemeral: true,
       });
-      console.log(`❌ Denied device ${deviceId}`);
     }
 
-    // Remove from requests collection after handling
-    await reqRef.delete();
+    // 🔁 Update buttons dynamically
+    const updatedRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`approve_${deviceId}`)
+        .setLabel(approved ? "✅ Approved" : "Approve")
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(approved), // disable if already approved
+
+      new ButtonBuilder()
+        .setCustomId(`deny_${deviceId}`)
+        .setLabel(!approved ? "❌ Denied" : "Deny")
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(!approved) // disable if denied
+    );
+
+    // 🔁 Edit original message
+    await interaction.message.edit({
+      components: [updatedRow],
+    });
+
+    // ❗ OPTIONAL: keep or remove request
+    // If you want toggle ability → DO NOT delete
+    // If you want one-time decision → keep delete
+
+    // await reqRef.delete(); ← COMMENT THIS OUT for toggle system
+
   } catch (err) {
     console.error("❌ Error processing request:", err);
+  
     await interaction.reply({
       content: "⚠️ Something went wrong while updating Firestore.",
       ephemeral: true,
@@ -157,5 +198,12 @@ client.once("ready", async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
   await watchRequests();
 });
+app.get("/", (req, res) => {
+  res.send("🤖 Bot is alive");
+});
 
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🌐 Web server running on port ${PORT}`);
+});
 client.login(process.env.DISCORD_TOKEN);
