@@ -1,33 +1,16 @@
 {
-<<<<<<< HEAD
-  "name": "spideygrd",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "discord.js": "^14.24.2",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "firebase-admin": "^13.6.0"
-=======
   "name": "spidey-approver-bot",
   "version": "1.0.0",
   "description": "Discord bot that handles device approval requests via Firebase.",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.15.3",
-    "dotenv": "^16.4.5",
-    "firebase-admin": "^12.5.0"
->>>>>>> 7a6366caab294ad5a557a7310c11965e38bfbb52
+    "discord.js": "^14.24.2",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "firebase-admin": "^13.6.0"
   }
 }
