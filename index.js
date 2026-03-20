@@ -12,6 +12,9 @@ const express = require("express");
 
 const app = express();
 
+// 🧠 Track sent messages (prevents duplicates)
+const sentMessages = new Map();
+
 // --- Validate environment variables ---
 if (!process.env.DISCORD_TOKEN) {
   console.error("❌ Missing DISCORD_TOKEN");
@@ -51,57 +54,69 @@ let unsubscribe = null;
 async function watchRequests() {
   if (unsubscribe) unsubscribe();
 
-  console.log("👀 Watching Firestore for new requests...");
+  console.log("👀 Watching Firestore for requests...");
 
   unsubscribe = db.collection("requests").onSnapshot(async (snapshot) => {
-    snapshot.docChanges().forEach(async (change) => {
-      if (change.type !== "added") return;
+    const channel = await client.channels.fetch(CHANNEL_ID);
 
-      const docId = change.doc.id;
-      const data = change.doc.data();
+    for (const doc of snapshot.docs) {
+      const docId = doc.id;
+      const data = doc.data();
 
-      // ✅ Skip already processed requests
-      if (data.processed === true) return;
+      // ✅ prevent duplicate messages
+      if (sentMessages.has(docId)) continue;
 
       const deviceId = data.deviceId;
       const username = data.username || "Unknown User";
       const deviceName = data.deviceName || "Unnamed Device";
 
-      console.log(`📩 New request: ${username} (${deviceName})`);
-
-      const embed = new EmbedBuilder()
-        .setTitle("🕷 New Device Registration Request")
-        .setDescription(
-          `**Username:** ${username}\n**Device Name:** ${deviceName}\n**Device ID:** \`${deviceId}\``
-        )
-        .setColor(0x3498db)
-        .setTimestamp();
-
-      // ✅ Button state (for safety if field exists)
       const isApproved = data.approved === true;
-      const isProcessed = data.processed === true;
+      const isDenied = data.processed === true && data.approved === false;
+
+      // 🎨 Button styles
+      const approveStyle = isApproved
+        ? ButtonStyle.Success // green
+        : ButtonStyle.Primary; // blue
+
+      const denyStyle = isDenied
+        ? ButtonStyle.Danger // red
+        : ButtonStyle.Primary; // blue
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`approve_${docId}`)
           .setLabel(isApproved ? "✅ Approved" : "Approve")
-          .setStyle(ButtonStyle.Success)
-          .setDisabled(isApproved),
+          .setStyle(approveStyle),
 
         new ButtonBuilder()
           .setCustomId(`deny_${docId}`)
-          .setLabel(isProcessed && !isApproved ? "❌ Denied" : "Deny")
-          .setStyle(ButtonStyle.Danger)
-          .setDisabled(isProcessed && !isApproved)
+          .setLabel(isDenied ? "❌ Denied" : "Deny")
+          .setStyle(denyStyle)
       );
 
+      const embed = new EmbedBuilder()
+        .setTitle("🕷 Device Request")
+        .setDescription(
+          `**Username:** ${username}\n**Device:** ${deviceName}\n**ID:** \`${deviceId}\``
+        )
+        .setColor(
+          isApproved ? 0x2ecc71 : isDenied ? 0xe74c3c : 0x3498db
+        )
+        .setTimestamp();
+
       try {
-        const channel = await client.channels.fetch(CHANNEL_ID);
-        await channel.send({ embeds: [embed], components: [row] });
+        const msg = await channel.send({
+          embeds: [embed],
+          components: [row],
+        });
+
+        // ✅ store message reference
+        sentMessages.set(docId, msg.id);
+
       } catch (err) {
-        console.error("❌ Failed to send message:", err);
+        console.error("❌ Send error:", err);
       }
-    });
+    }
   });
 }
 
@@ -130,7 +145,7 @@ client.on("interactionCreate", async (interaction) => {
   const currentApproved = data.approved === true;
   const approved = action === "approve";
 
-  // If same action clicked again, do nothing
+  // ❗ prevent same action spam
   if (approved === currentApproved) {
     return interaction.reply({
       content: `⚠️ Already ${approved ? "approved" : "denied"}.`,
@@ -139,7 +154,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   try {
-    // ✅ Save decision
+    // ✅ Save to devices
     await db.collection("devices").doc(deviceId).set({
       deviceId,
       username,
@@ -148,7 +163,7 @@ client.on("interactionCreate", async (interaction) => {
       timestamp: new Date().toISOString(),
     });
 
-    // ✅ Mark request as processed
+    // ✅ Update request
     await reqRef.update({
       processed: true,
       approved: approved,
@@ -162,19 +177,21 @@ client.on("interactionCreate", async (interaction) => {
       ephemeral: true,
     });
 
-    // ✅ Update buttons visually
+    // 🎨 Update buttons
     const updatedRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approve_${docId}`)
         .setLabel(approved ? "✅ Approved" : "Approve")
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(false),
+        .setStyle(
+          approved ? ButtonStyle.Success : ButtonStyle.Primary
+        ),
 
       new ButtonBuilder()
         .setCustomId(`deny_${docId}`)
         .setLabel(!approved ? "❌ Denied" : "Deny")
-        .setStyle(ButtonStyle.Danger)
-        .setDisabled(false)
+        .setStyle(
+          !approved ? ButtonStyle.Danger : ButtonStyle.Primary
+        )
     );
 
     await interaction.message.edit({
