@@ -123,19 +123,20 @@ client.on("interactionCreate", async (interaction) => {
 
   const data = snapshot.data();
 
-  // ✅ Prevent re-processing
-  if (data.processed === true) {
-    return interaction.reply({
-      content: "⚠️ Already processed.",
-      ephemeral: true,
-    });
-  }
-
   const deviceId = data.deviceId;
   const username = data.username || "Unknown";
   const deviceName = data.deviceName || "Unnamed";
 
+  const currentApproved = data.approved === true;
   const approved = action === "approve";
+
+  // If same action clicked again, do nothing
+  if (approved === currentApproved) {
+    return interaction.reply({
+      content: `⚠️ Already ${approved ? "approved" : "denied"}.`,
+      ephemeral: true,
+    });
+  }
 
   try {
     // ✅ Save decision
@@ -151,6 +152,7 @@ client.on("interactionCreate", async (interaction) => {
     await reqRef.update({
       processed: true,
       approved: approved,
+      updatedAt: new Date().toISOString(),
     });
 
     await interaction.reply({
@@ -166,13 +168,13 @@ client.on("interactionCreate", async (interaction) => {
         .setCustomId(`approve_${docId}`)
         .setLabel(approved ? "✅ Approved" : "Approve")
         .setStyle(ButtonStyle.Success)
-        .setDisabled(approved),
+        .setDisabled(false),
 
       new ButtonBuilder()
         .setCustomId(`deny_${docId}`)
         .setLabel(!approved ? "❌ Denied" : "Deny")
         .setStyle(ButtonStyle.Danger)
-        .setDisabled(!approved)
+        .setDisabled(false)
     );
 
     await interaction.message.edit({
