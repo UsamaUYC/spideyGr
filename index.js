@@ -19,8 +19,8 @@ if (!process.env.DISCORD_TOKEN) {
   console.error("❌ Missing DISCORD_TOKEN in .env");
   process.exit(1);
 }
-if (!process.env.FIREBASE_KEY || !fs.existsSync(process.env.FIREBASE_KEY)) {
-  console.error(`❌ Firebase key file not found: ${process.env.FIREBASE_KEY}`);
+if (!process.env.FIREBASE_KEY_JSON) {
+  console.error("❌ Missing FIREBASE_KEY_JSON in environment variables");
   process.exit(1);
 }
 if (!process.env.CHANNEL_ID) {
