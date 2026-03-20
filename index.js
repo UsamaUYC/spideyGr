@@ -30,7 +30,9 @@ if (!process.env.CHANNEL_ID) {
 
 // --- Init Firebase ---
 admin.initializeApp({
-  credential: admin.credential.cert(require(`./${process.env.FIREBASE_KEY}`)),
+  credential: admin.credential.cert(
+    JSON.parse(process.env.FIREBASE_KEY_JSON)
+  ),
 });
 const db = admin.firestore();
 
