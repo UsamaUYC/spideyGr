@@ -66,6 +66,7 @@ async function watchRequests() {
 
       // ✅ ONLY handle new requests
       if (change.type !== "added") return;
+      if (data.messageSent === true) return;
 
       // ✅ Prevent duplicate across restarts (persisted flag)
       if (data.messageSent === true) return;
@@ -141,7 +142,8 @@ async function loadExistingRequests() {
     const data = doc.data();
 
     // ✅ skip already sent
-    if (data.messageSent) continue;
+    // TEMP: allow reloading messages after restart
+    // if (data.messageSent) continue;
 
     const docId = doc.id;
     const deviceId = data.deviceId;
