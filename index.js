@@ -131,6 +131,63 @@ async function watchRequests() {
   });
 }
 
+async function loadExistingRequests() {
+  console.log("📦 Loading existing requests...");
+
+  const channel = await client.channels.fetch(CHANNEL_ID);
+  const snapshot = await db.collection("requests").get();
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+
+    // ✅ skip already sent
+    if (data.messageSent) continue;
+
+    const docId = doc.id;
+    const deviceId = data.deviceId;
+    const username = data.username || "Unknown User";
+    const deviceName = data.deviceName || "Unnamed Device";
+
+    const deviceSnap = await db.collection("devices").doc(deviceId).get();
+    const deviceData = deviceSnap.exists ? deviceSnap.data() : null;
+
+    const isApproved = deviceData?.approved === true;
+    const isDenied = deviceData?.approved === false;
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`approve_${docId}`)
+        .setLabel(isApproved ? "✅ Approved" : "Approve")
+        .setStyle(isApproved ? ButtonStyle.Success : ButtonStyle.Primary),
+
+      new ButtonBuilder()
+        .setCustomId(`deny_${docId}`)
+        .setLabel(isDenied ? "❌ Denied" : "Deny")
+        .setStyle(isDenied ? ButtonStyle.Danger : ButtonStyle.Primary)
+    );
+
+    const embed = new EmbedBuilder()
+      .setTitle("🕷 Device Request")
+      .setDescription(
+        `**Username:** ${username}\n**Device:** ${deviceName}\n**ID:** \`${deviceId}\``
+      )
+      .setColor(
+        isApproved ? 0x2ecc71 : isDenied ? 0xe74c3c : 0x3498db
+      )
+      .setTimestamp();
+
+    const msg = await channel.send({
+      embeds: [embed],
+      components: [row],
+    });
+
+    await db.collection("requests").doc(docId).update({
+      messageSent: true,
+      messageId: msg.id,
+    });
+  }
+}
+
 // --- Handle buttons ---
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isButton()) return;
@@ -229,6 +286,7 @@ client.on("interactionCreate", async (interaction) => {
 // --- Bot Ready ---
 client.once("ready", async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
+  await loadExistingRequests();
   await watchRequests();
 });
 
