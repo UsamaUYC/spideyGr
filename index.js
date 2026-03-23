@@ -36,7 +36,7 @@ admin.initializeApp({
   ),
 });
 const db = admin.firestore();
-
+console.log("🔥 Firebase connected to project:", JSON.parse(process.env.FIREBASE_KEY_JSON).project_id);
 // --- Init Discord ---
 const client = new Client({
   intents: [
@@ -66,9 +66,6 @@ async function watchRequests() {
 
       // ✅ ONLY handle new requests
       if (change.type !== "added") return;
-      if (data.messageSent === true) return;
-
-      // ✅ Prevent duplicate across restarts (persisted flag)
       if (data.messageSent === true) return;
 
       const deviceId = data.deviceId;
@@ -297,12 +294,19 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // --- Bot Ready ---
-client.once("clientReady", async () => {
+client.on("ready", async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
-  console.log("🚀 Starting initial load...");
-  await loadExistingRequests();
-  console.log("👀 Starting live watcher...");
-  await watchRequests();
+
+  try {
+    console.log("🚀 Starting initial load...");
+    await loadExistingRequests();
+
+    console.log("👀 Starting live watcher...");
+    await watchRequests();
+
+  } catch (err) {
+    console.error("❌ Startup error:", err);
+  }
 });
 
 // --- Keep alive server ---
