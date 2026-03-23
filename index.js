@@ -59,28 +59,36 @@ async function watchRequests() {
   unsubscribe = db.collection("requests").onSnapshot(async (snapshot) => {
     const channel = await client.channels.fetch(CHANNEL_ID);
 
-    for (const doc of snapshot.docs) {
+    snapshot.docChanges().forEach(async (change) => {
+      const doc = change.doc;
       const docId = doc.id;
       const data = doc.data();
 
-      // ✅ prevent duplicate messages
-      if (sentMessages.has(docId)) continue;
+      // ✅ ONLY handle new requests
+      if (change.type !== "added") return;
+
+      // ✅ Prevent duplicate across restarts (persisted flag)
+      if (data.messageSent === true) return;
 
       const deviceId = data.deviceId;
       const username = data.username || "Unknown User";
       const deviceName = data.deviceName || "Unnamed Device";
 
-      const isApproved = data.approved === true;
-      const isDenied = data.processed === true && data.approved === false;
+      // 🔍 Check real status from devices collection
+      const deviceSnap = await db.collection("devices").doc(deviceId).get();
+      const deviceData = deviceSnap.exists ? deviceSnap.data() : null;
+
+      const isApproved = deviceData?.approved === true;
+      const isDenied = deviceData?.approved === false;
 
       // 🎨 Button styles
       const approveStyle = isApproved
-        ? ButtonStyle.Success // green
-        : ButtonStyle.Primary; // blue
+        ? ButtonStyle.Success
+        : ButtonStyle.Primary;
 
       const denyStyle = isDenied
-        ? ButtonStyle.Danger // red
-        : ButtonStyle.Primary; // blue
+        ? ButtonStyle.Danger
+        : ButtonStyle.Primary;
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -110,13 +118,16 @@ async function watchRequests() {
           components: [row],
         });
 
-        // ✅ store message reference
-        sentMessages.set(docId, msg.id);
+        // ✅ Mark as sent (PERSISTENT)
+        await db.collection("requests").doc(docId).update({
+          messageSent: true,
+          messageId: msg.id,
+        });
 
       } catch (err) {
         console.error("❌ Send error:", err);
       }
-    }
+    });
   });
 }
 
@@ -142,7 +153,10 @@ client.on("interactionCreate", async (interaction) => {
   const username = data.username || "Unknown";
   const deviceName = data.deviceName || "Unnamed";
 
-  const currentApproved = data.approved === true;
+  const deviceSnap = await db.collection("devices").doc(deviceId).get();
+  const currentApproved = deviceSnap.exists
+    ? deviceSnap.data().approved === true
+    : false;
   const approved = action === "approve";
 
   // ❗ prevent same action spam
