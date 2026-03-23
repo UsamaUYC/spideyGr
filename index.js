@@ -136,57 +136,68 @@ async function loadExistingRequests() {
   console.log("📦 Loading existing requests...");
 
   const channel = await client.channels.fetch(CHANNEL_ID);
+
   const snapshot = await db.collection("requests").get();
+
+  console.log(`📊 Found ${snapshot.size} requests in Firestore`);
 
   for (const doc of snapshot.docs) {
     const data = doc.data();
 
-    // ✅ skip already sent
-    // TEMP: allow reloading messages after restart
-    // if (data.messageSent) continue;
+    console.log("➡️ Processing doc:", doc.id, data);
 
     const docId = doc.id;
     const deviceId = data.deviceId;
+
+    if (!deviceId) {
+      console.log("⛔ Skipping (no deviceId)");
+      continue;
+    }
+
     const username = data.username || "Unknown User";
     const deviceName = data.deviceName || "Unnamed Device";
 
-    const deviceSnap = await db.collection("devices").doc(deviceId).get();
-    const deviceData = deviceSnap.exists ? deviceSnap.data() : null;
+    try {
+      const deviceSnap = await db.collection("devices").doc(deviceId).get();
+      const deviceData = deviceSnap.exists ? deviceSnap.data() : null;
 
-    const isApproved = deviceData?.approved === true;
-    const isDenied = deviceData?.approved === false;
+      const isApproved = deviceData?.approved === true;
+      const isDenied = deviceData?.approved === false;
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`approve_${docId}`)
-        .setLabel(isApproved ? "✅ Approved" : "Approve")
-        .setStyle(isApproved ? ButtonStyle.Success : ButtonStyle.Primary),
+      console.log(`🧠 Status for ${deviceId}:`, deviceData);
 
-      new ButtonBuilder()
-        .setCustomId(`deny_${docId}`)
-        .setLabel(isDenied ? "❌ Denied" : "Deny")
-        .setStyle(isDenied ? ButtonStyle.Danger : ButtonStyle.Primary)
-    );
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`approve_${docId}`)
+          .setLabel(isApproved ? "✅ Approved" : "Approve")
+          .setStyle(isApproved ? ButtonStyle.Success : ButtonStyle.Primary),
 
-    const embed = new EmbedBuilder()
-      .setTitle("🕷 Device Request")
-      .setDescription(
-        `**Username:** ${username}\n**Device:** ${deviceName}\n**ID:** \`${deviceId}\``
-      )
-      .setColor(
-        isApproved ? 0x2ecc71 : isDenied ? 0xe74c3c : 0x3498db
-      )
-      .setTimestamp();
+        new ButtonBuilder()
+          .setCustomId(`deny_${docId}`)
+          .setLabel(isDenied ? "❌ Denied" : "Deny")
+          .setStyle(isDenied ? ButtonStyle.Danger : ButtonStyle.Primary)
+      );
 
-    const msg = await channel.send({
-      embeds: [embed],
-      components: [row],
-    });
+      const embed = new EmbedBuilder()
+        .setTitle("🕷 Device Request")
+        .setDescription(
+          `**Username:** ${username}\n**Device:** ${deviceName}\n**ID:** \`${deviceId}\``
+        )
+        .setColor(
+          isApproved ? 0x2ecc71 : isDenied ? 0xe74c3c : 0x3498db
+        )
+        .setTimestamp();
 
-    await db.collection("requests").doc(docId).update({
-      messageSent: true,
-      messageId: msg.id,
-    });
+      const msg = await channel.send({
+        embeds: [embed],
+        components: [row],
+      });
+
+      console.log("✅ Sent message:", msg.id);
+
+    } catch (err) {
+      console.error("❌ Error sending message:", err);
+    }
   }
 }
 
