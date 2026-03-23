@@ -297,9 +297,11 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // --- Bot Ready ---
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`🤖 Logged in as ${client.user.tag}`);
+  console.log("🚀 Starting initial load...");
   await loadExistingRequests();
+  console.log("👀 Starting live watcher...");
   await watchRequests();
 });
 
