@@ -191,7 +191,10 @@ async function loadExistingRequests() {
       });
 
       console.log("✅ Sent message:", msg.id);
-
+      await db.collection("requests").doc(docId).update({
+        messageSent: true,
+        messageId: msg.id,
+      });
     } catch (err) {
       console.error("❌ Error sending message:", err);
     }
@@ -204,13 +207,14 @@ client.on("interactionCreate", async (interaction) => {
 
   const [action, docId] = interaction.customId.split("_");
 
+  await interaction.deferReply({ ephemeral: true });
+
   const reqRef = db.collection("requests").doc(docId);
   const snapshot = await reqRef.get();
 
   if (!snapshot.exists) {
-    return interaction.reply({
+    return interaction.editReply({
       content: "⚠️ Request not found.",
-      ephemeral: true,
     });
   }
 
@@ -224,18 +228,16 @@ client.on("interactionCreate", async (interaction) => {
   const currentApproved = deviceSnap.exists
     ? deviceSnap.data().approved === true
     : false;
+
   const approved = action === "approve";
 
-  // ❗ prevent same action spam
   if (approved === currentApproved) {
-    return interaction.reply({
+    return interaction.editReply({
       content: `⚠️ Already ${approved ? "approved" : "denied"}.`,
-      ephemeral: true,
     });
   }
 
   try {
-    // ✅ Save to devices
     await db.collection("devices").doc(deviceId).set({
       deviceId,
       username,
@@ -244,21 +246,18 @@ client.on("interactionCreate", async (interaction) => {
       timestamp: new Date().toISOString(),
     });
 
-    // ✅ Update request
     await reqRef.update({
       processed: true,
       approved: approved,
       updatedAt: new Date().toISOString(),
     });
 
-    await interaction.reply({
+    await interaction.editReply({
       content: approved
         ? `✅ Approved ${username}`
         : `❌ Denied ${username}`,
-      ephemeral: true,
     });
 
-    // 🎨 Update buttons
     const updatedRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`approve_${docId}`)
@@ -286,9 +285,8 @@ client.on("interactionCreate", async (interaction) => {
   } catch (err) {
     console.error("❌ Error:", err);
 
-    await interaction.reply({
+    await interaction.editReply({
       content: "⚠️ Error occurred.",
-      ephemeral: true,
     });
   }
 });
